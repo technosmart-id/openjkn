@@ -46,6 +46,15 @@ uploads/*
 !uploads/.gitkeep
 .claude/
 
+# python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+.venv/
+venv/
+
 # AI module - generated outputs and models
 ai/outputs_enrollment/
 ai/anomaly_detection/saved_models/

@@ -15,6 +15,7 @@ import {
 
 async function runMigrations() {
   const sqlFiles = [
+    "lib/db/migrations/0000_create_auth_tables.sql",
     "lib/db/migrations/create_jkn_tables.sql",
     "lib/db/migrations/0001_fix_jkn_tables.sql",
   ];
