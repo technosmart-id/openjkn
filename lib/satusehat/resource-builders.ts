@@ -4,7 +4,6 @@
  */
 
 import type {
-  FHIOrganization,
   FHIRAddress,
   FHIRBundleEntry,
   FHIRContactPoint,
@@ -14,11 +13,15 @@ import type {
   FHIRIdentifier,
   FHIRLocation,
   FHIRMeta,
+  FHIOrganization,
   FHIRPatient,
   FHIRReference,
   FHIRRelatedPerson,
 } from "./fhir-types";
-import { SATUSEHAT_SYSTEMS } from "./fhir-types";
+import {
+  SATUSEHAT_CODES,
+  SATUSEHAT_SYSTEMS,
+} from "./fhir-types";
 
 // JKN data types (from schema)
 export type JKNGender = "LAKI_LAKI" | "PEREMPUAN";
@@ -96,9 +99,7 @@ export interface JKNHealthcareFacilityData {
 /**
  * Map JKN gender to FHIR gender
  */
-export function mapGender(
-  gender: JKNGender
-): "male" | "female" | "other" | "unknown" {
+export function mapGender(gender: JKNGender): "male" | "female" | "other" | "unknown" {
   return gender === "LAKI_LAKI" ? "male" : "female";
 }
 
@@ -174,8 +175,7 @@ export function buildPatientName(
 ): FHIRHumanName[] {
   const givenNames = data.firstName ? [data.firstName] : [];
   const family = data.lastName || undefined;
-  const text =
-    data.nameOnCard || `${data.firstName} ${data.lastName || ""}`.trim();
+  const text = data.nameOnCard || `${data.firstName} ${data.lastName || ""}`.trim();
 
   return [
     {
@@ -237,7 +237,7 @@ export function buildAddress(
   }
 
   if (lines.length === 0 && !data.addressCity && !data.addressProvince) {
-    return;
+    return undefined;
   }
 
   return {
@@ -427,8 +427,7 @@ export function buildCoverageResource(
 
   // Add subscriber ID (BPJS number if available)
   if (options?.subscriberId || participantData.bpjsNumber) {
-    coverage.subscriberId =
-      options?.subscriberId || participantData.bpjsNumber || undefined;
+    coverage.subscriberId = options?.subscriberId || participantData.bpjsNumber || undefined;
     coverage.subscriber = patientReference;
     coverage.policyHolder = patientReference;
   }
@@ -455,8 +454,7 @@ export function buildCoverageResource(
     coverage.relationship = {
       coding: [
         {
-          system:
-            "http://terminology.hl7.org/CodeSystem/subscriber-relationship",
+          system: "http://terminology.hl7.org/CodeSystem/subscriber-relationship",
           code: "self",
           display: participantData.participantSegment,
         },
@@ -508,9 +506,7 @@ export function buildRelatedPersonResource(
   }
 
   // Add name
-  const givenNames = familyMemberData.firstName
-    ? [familyMemberData.firstName]
-    : [];
+  const givenNames = familyMemberData.firstName ? [familyMemberData.firstName] : [];
   const family = familyMemberData.lastName || undefined;
   relatedPerson.name = [
     {
@@ -550,8 +546,7 @@ export function buildRelatedPersonResource(
     FAMILY_LAIN: "other",
   };
 
-  const relationshipCode =
-    relationshipMap[familyMemberData.relationship] || "other";
+  const relationshipCode = relationshipMap[familyMemberData.relationship] || "other";
   relatedPerson.relationship = [
     {
       coding: [
@@ -611,9 +606,7 @@ export function buildEnrollmentBundle(
 
   // Add organization if provided
   if (organization) {
-    entries.push(
-      createBundleEntry(organization, organization.id ? "PUT" : "POST")
-    );
+    entries.push(createBundleEntry(organization, organization.id ? "PUT" : "POST"));
   }
 
   // Add coverage if provided
@@ -624,9 +617,7 @@ export function buildEnrollmentBundle(
   // Add related persons if provided
   if (relatedPersons) {
     for (const relatedPerson of relatedPersons) {
-      entries.push(
-        createBundleEntry(relatedPerson, relatedPerson.id ? "PUT" : "POST")
-      );
+      entries.push(createBundleEntry(relatedPerson, relatedPerson.id ? "PUT" : "POST"));
     }
   }
 

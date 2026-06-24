@@ -129,16 +129,12 @@ function runPythonScript(
   dataPath: string
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const python = spawn(
-      "/app/ai/venv/bin/python",
-      ["-u", scriptPath, dataPath],
-      {
-        env: {
-          ...process.env,
-          OPENJKN_AI_OUTPUT_DIR: OUTPUT_DIR,
-        },
-      }
-    );
+    const python = spawn("/usr/bin/python3", ["-u", scriptPath, dataPath], {
+      env: {
+        ...process.env,
+        OPENJKN_AI_OUTPUT_DIR: OUTPUT_DIR,
+      },
+    });
     let output = "";
     let errorOutput = "";
 

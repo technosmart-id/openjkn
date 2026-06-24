@@ -5,19 +5,13 @@ import path from "path";
 dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
 
 // Use require to prevent hoisting so dotenv is loaded first
-const {
-  getAccessToken,
-  healthCheck,
-  isConfigured,
-} = require("../lib/satusehat");
+const { getAccessToken, healthCheck, isConfigured } = require("../lib/satusehat");
 
 async function main() {
   console.log("🚀 Testing SatuSehat Connection...");
 
   if (!isConfigured()) {
-    console.error(
-      "❌ SatuSehat is not configured. Check your .env.local file."
-    );
+    console.error("❌ SatuSehat is not configured. Check your .env.local file.");
     process.exit(1);
   }
 
@@ -36,9 +30,7 @@ async function main() {
     if (isHealthy) {
       console.log("✅ SatuSehat API is reachable and healthy.");
     } else {
-      console.warn(
-        "⚠️ SatuSehat API health check failed (but token was retrieved)."
-      );
+      console.warn("⚠️ SatuSehat API health check failed (but token was retrieved).");
     }
 
     console.log("\n✨ Connection Test PASSED!");

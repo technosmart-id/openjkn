@@ -20,7 +20,8 @@ export function proxy(request: NextRequest) {
     pathname.startsWith("/api/admin") ||
     pathname.startsWith("/api/sync") ||
     pathname.startsWith("/api/health") ||
-    pathname.startsWith("/api/ai")
+    pathname.startsWith("/api/ai") ||
+    pathname.startsWith("/api/dev")
   ) {
     return NextResponse.next();
   }
