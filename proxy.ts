@@ -19,7 +19,8 @@ export function proxy(request: NextRequest) {
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/admin") ||
     pathname.startsWith("/api/sync") ||
-    pathname.startsWith("/api/health")
+    pathname.startsWith("/api/health") ||
+    pathname.startsWith("/api/ai")
   ) {
     return NextResponse.next();
   }

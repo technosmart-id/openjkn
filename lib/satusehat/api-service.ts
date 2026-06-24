@@ -4,27 +4,30 @@
  */
 
 import type {
-  FHIRBundle,
-  FHIROperationOutcome,
-  FHIRPatient,
   FHIOrganization,
+  FHIRBundle,
   FHIRCoverage,
-  FHIRRelatedPerson,
   FHIREncounter,
   FHIRLocation,
+  FHIROperationOutcome,
+  FHIRPatient,
   FHIRPractitioner,
+  FHIRRelatedPerson,
 } from "./fhir-types";
 
 // Environment configuration
 const SATUSEHAT_CONFIG = {
-  apiUrl: (process.env.SATUSEHAT_API_URL || "https://api-satusehat-stg.dto.kemkes.go.id/fhir-r4/v1").trim(),
-  authUrl:
-    (process.env.SATUSEHAT_AUTH_URL ||
-    "https://api-satusehat-stg.dto.kemkes.go.id/oauth2/v1").trim(),
+  apiUrl: (
+    process.env.SATUSEHAT_API_URL ||
+    "https://api-satusehat-stg.dto.kemkes.go.id/fhir-r4/v1"
+  ).trim(),
+  authUrl: (
+    process.env.SATUSEHAT_AUTH_URL ||
+    "https://api-satusehat-stg.dto.kemkes.go.id/oauth2/v1"
+  ).trim(),
   clientId: (process.env.SATUSEHAT_CLIENT_ID || "").trim(),
   clientSecret: (process.env.SATUSEHAT_CLIENT_SECRET || "").trim(),
-  organizationId:
-    (process.env.SATUSEHAT_ORGANIZATION_ID || "1000").trim(), // Default organization ID
+  organizationId: (process.env.SATUSEHAT_ORGANIZATION_ID || "1000").trim(), // Default organization ID
 } as const;
 
 // Token cache
@@ -57,23 +60,26 @@ export async function getAccessToken(): Promise<string> {
     return tokenCache.accessToken;
   }
 
-  if (!SATUSEHAT_CONFIG.clientId || !SATUSEHAT_CONFIG.clientSecret) {
+  if (!(SATUSEHAT_CONFIG.clientId && SATUSEHAT_CONFIG.clientSecret)) {
     throw new SatuSehatError(
       "SatuSehat credentials not configured. Please set SATUSEHAT_CLIENT_ID and SATUSEHAT_CLIENT_SECRET environment variables."
     );
   }
 
   try {
-    const response = await fetch(`${SATUSEHAT_CONFIG.authUrl}/accesstoken?grant_type=client_credentials`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        client_id: SATUSEHAT_CONFIG.clientId,
-        client_secret: SATUSEHAT_CONFIG.clientSecret,
-      }),
-    });
+    const response = await fetch(
+      `${SATUSEHAT_CONFIG.authUrl}/accesstoken?grant_type=client_credentials`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          client_id: SATUSEHAT_CONFIG.clientId,
+          client_secret: SATUSEHAT_CONFIG.clientSecret,
+        }),
+      }
+    );
 
     if (!response.ok) {
       const text = await response.text();
@@ -178,12 +184,11 @@ async function retryRequest<T>(
       if (
         error instanceof SatuSehatError &&
         error.statusCode &&
-        error.statusCode >= 500
+        error.statusCode >= 500 &&
+        i < maxRetries - 1
       ) {
-        if (i < maxRetries - 1) {
-          await new Promise((resolve) => setTimeout(resolve, delay * (i + 1)));
-          continue;
-        }
+        await new Promise((resolve) => setTimeout(resolve, delay * (i + 1)));
+        continue;
       }
       throw error;
     }
@@ -235,10 +240,13 @@ export async function upsertOrganization(
         }
       )
     : await retryRequest(async () =>
-        makeRequest<{ id: string; resource: FHIOrganization }>("/Organization", {
-          method: "POST",
-          body: JSON.stringify(organization),
-        })
+        makeRequest<{ id: string; resource: FHIOrganization }>(
+          "/Organization",
+          {
+            method: "POST",
+            body: JSON.stringify(organization),
+          }
+        )
       );
 
   return result;
@@ -302,9 +310,7 @@ export async function upsertRelatedPerson(
 /**
  * Execute a transaction bundle
  */
-export async function executeBundle(
-  bundle: FHIRBundle
-): Promise<FHIRBundle> {
+export async function executeBundle(bundle: FHIRBundle): Promise<FHIRBundle> {
   return retryRequest(() =>
     makeRequest<FHIRBundle>("", {
       method: "POST",
@@ -401,7 +407,9 @@ export async function searchPatientByBPJS(
     const response = await makeRequest<{
       resourceType: string;
       entry?: Array<{ resource: FHIRPatient }>;
-    }>(`/Patient?identifier=https://fhir.kemkes.go.id/id/bpjs-kesehatan|${bpjsNumber}`);
+    }>(
+      `/Patient?identifier=https://fhir.kemkes.go.id/id/bpjs-kesehatan|${bpjsNumber}`
+    );
 
     if (response.entry && response.entry.length > 0) {
       return response.entry[0]?.resource || null;
@@ -427,7 +435,9 @@ export async function searchOrganizationByCode(
     const response = await makeRequest<{
       resourceType: string;
       entry?: Array<{ resource: FHIOrganization }>;
-    }>(`/Organization?identifier=https://fhir.kemkes.go.id/id/organization-faskes|${code}`);
+    }>(
+      `/Organization?identifier=https://fhir.kemkes.go.id/id/organization-faskes|${code}`
+    );
 
     if (response.entry && response.entry.length > 0) {
       return response.entry[0]?.resource || null;
@@ -493,9 +503,7 @@ export function clearTokenCache(): void {
  * Check if SatuSehat is configured
  */
 export function isConfigured(): boolean {
-  return !!(
-    SATUSEHAT_CONFIG.clientId && SATUSEHAT_CONFIG.clientSecret
-  );
+  return !!(SATUSEHAT_CONFIG.clientId && SATUSEHAT_CONFIG.clientSecret);
 }
 
 /**

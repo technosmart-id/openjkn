@@ -216,9 +216,13 @@ export function runPythonScript(
   args: string[]
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const python = spawn("python3", ["-u", scriptPath, ...args], {
-      env: { ...process.env, OPENJKN_AI_OUTPUT_DIR: OUTPUT_DIR },
-    });
+    const python = spawn(
+      "/app/ai/venv/bin/python",
+      ["-u", scriptPath, ...args],
+      {
+        env: { ...process.env, OPENJKN_AI_OUTPUT_DIR: OUTPUT_DIR },
+      }
+    );
     let output = "";
     let errorOutput = "";
     python.stdout.on("data", (data) => {
