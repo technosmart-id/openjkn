@@ -12,6 +12,9 @@ export const TEMP_BASE = path.join(os.tmpdir(), "openjkn-ai");
 export const UPLOAD_DIR = path.join(TEMP_BASE, "uploads");
 export const OUTPUT_DIR = path.join(TEMP_BASE, "outputs_enrollment");
 
+// Python interpreter: override via PYTHON_BIN when not on PATH (e.g. deployments).
+const PYTHON_BIN = process.env.PYTHON_BIN ?? "python3";
+
 // Ensure directories exist
 export async function ensureDirs() {
   if (!existsSync(UPLOAD_DIR)) {
@@ -216,7 +219,7 @@ export function runPythonScript(
   args: string[]
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const python = spawn("python3", ["-u", scriptPath, ...args], {
+    const python = spawn(PYTHON_BIN, ["-u", scriptPath, ...args], {
       env: { ...process.env, OPENJKN_AI_OUTPUT_DIR: OUTPUT_DIR },
     });
     let output = "";
