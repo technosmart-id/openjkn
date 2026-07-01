@@ -795,6 +795,492 @@ export async function clearAllData() {
   console.log("✓ Cleared all JKN data");
 }
 
+/**
+ * Seed anomaly-rich participant data to exercise every rule in rules.py.
+ *
+ * Each "scenario" block maps directly to a named rule:
+ *   AKTIF_UMUR_>110, UMUR_NEGATIF, KEPALA_KELUARGA_ANAK,
+ *   KELUARGA_>50_ANGGOTA, KELUARGA_BESAR, KAWIN_UMUR_<16,
+ *   ANAK_TAPI_UMUR_>25, TANPA_KEPALA_KELUARGA, RASIO_AKTIF_RENDAH
+ *
+ * Family grouping is done via familyCardNumber — members sharing the same
+ * familyCardNumber will be grouped together in the ML pipeline.
+ */
+export async function seedAnomalyData() {
+  console.log("🚨 Seeding anomaly data...");
+
+  const today = new Date();
+
+  /**
+   * Helper: subtract years from today to get a birthDate string (YYYY-MM-DD).
+   * Pass negative years to get a future date (UMUR_NEGATIF).
+   */
+  function birthDateFromAge(years: number): string {
+    const d = new Date(today);
+    d.setFullYear(d.getFullYear() - years);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
+  /** Insert a single participant row and return its auto-generated id. */
+  async function insertParticipant(p: {
+    bpjsNumber: string;
+    familyCardNumber: string;
+    identityNumber: string;
+    firstName: string;
+    lastName: string | null;
+    nameOnCard: string;
+    pisaCode: string;
+    gender: "LAKI_LAKI" | "PEREMPUAN";
+    birthDate: string;
+    maritalStatus: "KAWIN" | "BELUM_KAWIN" | "JANDA" | "DUDA";
+    isActive: boolean;
+    participantSegment: string;
+    treatmentClass: "I" | "II" | "III";
+  }): Promise<number> {
+    await db.execute(
+      sql`INSERT INTO "participant" (
+        "bpjsNumber", "familyCardNumber", "identityNumber",
+        "firstName", "lastName", "nameOnCard", "pisaCode",
+        "gender", "bloodType", "birthPlace", "birthDate",
+        "religion", "maritalStatus", "phoneNumber", "email",
+        "addressStreet", "addressRt", "addressRw",
+        "addressVillage", "addressDistrict", "addressCity",
+        "addressProvince", "addressPostalCode",
+        "mailingAddressSame", "mailingAddressStreet",
+        "mailingAddressRt", "mailingAddressRw",
+        "mailingAddressVillage", "mailingAddressDistrict",
+        "mailingAddressCity", "mailingAddressProvince",
+        "mailingAddressPostalCode", "npwp", "photoUrl",
+        "occupation", "monthlyIncome", "visaNumber",
+        "hasCommercialInsurance",
+        "commercialInsurancePolicyNumber",
+        "commercialInsuranceCompanyName",
+        "participantSegment", "treatmentClass",
+        "isLifetimeMember", "userId",
+        "createdAt", "updatedAt",
+        "effectiveDate", "expiryDate",
+        "isActive", "statusPeserta", "statusBayar",
+        "deactivatedAt", "deactivationReason"
+      ) VALUES (
+        ${p.bpjsNumber}, ${p.familyCardNumber}, ${p.identityNumber},
+        ${p.firstName}, ${p.lastName}, ${p.nameOnCard}, ${p.pisaCode},
+        ${p.gender}, ${"O"}, ${"Jakarta"}, ${p.birthDate},
+        ${"ISLAM"}, ${p.maritalStatus}, ${"021-00000000"}, ${`${p.bpjsNumber}@anomali.test`},
+        ${"Jl Anomali No 1"}, ${"001"}, ${"001"},
+        ${"Kelurahan"}, ${"Kecamatan"}, ${"Jakarta"},
+        ${"DKI Jakarta"}, ${"10000"},
+        ${true}, ${null},
+        ${null}, ${null},
+        ${null}, ${null},
+        ${null}, ${null},
+        ${null}, ${faker.string.numeric(15)}, ${null},
+        ${"Tidak Bekerja"}, ${"3000000"}, ${null},
+        ${false},
+        ${null},
+        ${null},
+        ${p.participantSegment}, ${p.treatmentClass},
+        ${true}, ${null},
+        ${new Date()}, ${new Date()},
+        ${null}, ${null},
+        ${p.isActive},
+        ${p.isActive ? "AKTIF" : "NON_AKTIF"},
+        ${"LUNAS"},
+        ${p.isActive ? null : new Date()},
+        ${p.isActive ? null : "Anomali test"}
+      )`
+    );
+    const rows = await db.execute(
+      sql`SELECT id FROM "participant" WHERE "bpjsNumber" = ${p.bpjsNumber} LIMIT 1`
+    );
+    return (rows.rows[0] as { id: number }).id;
+  }
+
+  /** Insert a family member row linked to a participant head-of-family. */
+  async function insertFamilyMember(fm: {
+    headOfFamilyId: number;
+    firstName: string;
+    relationship: string;
+    pisaCode: string;
+    gender: "LAKI_LAKI" | "PEREMPUAN";
+    birthDate: string;
+    isStudent?: boolean;
+  }): Promise<void> {
+    await db.insert(familyMember).values({
+      headOfFamilyId: fm.headOfFamilyId,
+      firstName: fm.firstName,
+      lastName: null,
+      identityNumber: faker.string.numeric(16),
+      relationship: fm.relationship as any,
+      pisaCode: fm.pisaCode,
+      childOrder: fm.pisaCode === "4" ? 1 : null,
+      isStudent: fm.isStudent ?? false,
+      gender: fm.gender,
+      birthPlace: "Jakarta",
+      birthDate: new Date(fm.birthDate),
+      phoneNumber: null,
+      email: null,
+      bpjsNumber: null,
+      employeeId: null,
+      studentVerificationNumber: null,
+      studentVerificationDate: null,
+      photoUrl: null,
+      primaryFacilityId: null,
+      dentalFacilityId: null,
+      hasCommercialInsurance: false,
+      commercialInsurancePolicyNumber: null,
+      commercialInsuranceCompanyName: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any);
+  }
+
+  // ──────────────────────────────────────────────────────
+  // Scenario 1 — AKTIF_UMUR_>110
+  // Active participant born 120 years ago
+  // ──────────────────────────────────────────────────────
+  {
+    const id = await insertParticipant({
+      bpjsNumber: "ANOM0000000001",
+      familyCardNumber: "ANOMFAM000001",
+      identityNumber: faker.string.numeric(16),
+      firstName: "Nenek",
+      lastName: "Tua Banget",
+      nameOnCard: "Nenek Tua Banget",
+      pisaCode: "1",
+      gender: "PEREMPUAN",
+      birthDate: birthDateFromAge(120), // 120 tahun — mustahil aktif
+      maritalStatus: "JANDA",
+      isActive: true,
+      participantSegment: "PBI_APBN",
+      treatmentClass: "III",
+    });
+    console.log(`  ✓ Scenario 1 AKTIF_UMUR_>110 (id=${id})`);
+  }
+
+  // ──────────────────────────────────────────────────────
+  // Scenario 2 — UMUR_NEGATIF
+  // Birth date 5 years in the future
+  // ──────────────────────────────────────────────────────
+  {
+    const futureBirth = new Date(today);
+    futureBirth.setFullYear(futureBirth.getFullYear() + 5);
+    const futureBirthStr = `${futureBirth.getFullYear()}-${String(futureBirth.getMonth() + 1).padStart(2, "0")}-01`;
+    const id = await insertParticipant({
+      bpjsNumber: "ANOM0000000002",
+      familyCardNumber: "ANOMFAM000002",
+      identityNumber: faker.string.numeric(16),
+      firstName: "Belum",
+      lastName: "Lahir",
+      nameOnCard: "Belum Lahir",
+      pisaCode: "1",
+      gender: "LAKI_LAKI",
+      birthDate: futureBirthStr,
+      maritalStatus: "BELUM_KAWIN",
+      isActive: true,
+      participantSegment: "PBPU",
+      treatmentClass: "I",
+    });
+    console.log(`  ✓ Scenario 2 UMUR_NEGATIF (id=${id})`);
+  }
+
+  // ──────────────────────────────────────────────────────
+  // Scenario 3 — KEPALA_KELUARGA_ANAK
+  // Head of family (pisaCode=1) aged 8 — a child registered as KK head
+  // ──────────────────────────────────────────────────────
+  {
+    const id = await insertParticipant({
+      bpjsNumber: "ANOM0000000003",
+      familyCardNumber: "ANOMFAM000003",
+      identityNumber: faker.string.numeric(16),
+      firstName: "Bocah",
+      lastName: "Kepala Keluarga",
+      nameOnCard: "Bocah Kepala Keluarga",
+      pisaCode: "1",
+      gender: "LAKI_LAKI",
+      birthDate: birthDateFromAge(8),
+      maritalStatus: "BELUM_KAWIN",
+      isActive: true,
+      participantSegment: "PBI_APBN",
+      treatmentClass: "III",
+    });
+    console.log(`  ✓ Scenario 3 KEPALA_KELUARGA_ANAK (id=${id})`);
+  }
+
+  // ──────────────────────────────────────────────────────
+  // Scenario 4 — KELUARGA_>50_ANGGOTA
+  // One family with 55 members (head + 54 dependents)
+  // ──────────────────────────────────────────────────────
+  {
+    const headId = await insertParticipant({
+      bpjsNumber: "ANOM0000000004",
+      familyCardNumber: "ANOMFAM000004",
+      identityNumber: faker.string.numeric(16),
+      firstName: "Bapak",
+      lastName: "Lima Puluh",
+      nameOnCard: "Bapak Lima Puluh",
+      pisaCode: "1",
+      gender: "LAKI_LAKI",
+      birthDate: birthDateFromAge(45),
+      maritalStatus: "KAWIN",
+      isActive: true,
+      participantSegment: "PU_PNS_PUSAT",
+      treatmentClass: "I",
+    });
+    // 54 anak-anak untuk total 55 anggota keluarga
+    for (let i = 0; i < 54; i++) {
+      await insertFamilyMember({
+        headOfFamilyId: headId,
+        firstName: `Anak${String(i + 1).padStart(2, "0")}`,
+        relationship: "ANAK_TANGGUNGAN",
+        pisaCode: "4",
+        gender: i % 2 === 0 ? "LAKI_LAKI" : "PEREMPUAN",
+        birthDate: birthDateFromAge(faker.number.int({ min: 5, max: 20 })),
+      });
+    }
+    console.log(
+      `  ✓ Scenario 4 KELUARGA_>50_ANGGOTA (id=${headId}, 55 members)`
+    );
+  }
+
+  // ──────────────────────────────────────────────────────
+  // Scenario 5 — KELUARGA_BESAR (>10 anggota, masuk soft rule)
+  // 12-member family — normal enough to exist but triggers KELUARGA_BESAR
+  // ──────────────────────────────────────────────────────
+  {
+    const headId = await insertParticipant({
+      bpjsNumber: "ANOM0000000005",
+      familyCardNumber: "ANOMFAM000005",
+      identityNumber: faker.string.numeric(16),
+      firstName: "Keluarga",
+      lastName: "Besar",
+      nameOnCard: "Keluarga Besar",
+      pisaCode: "1",
+      gender: "LAKI_LAKI",
+      birthDate: birthDateFromAge(50),
+      maritalStatus: "KAWIN",
+      isActive: true,
+      participantSegment: "PBPU",
+      treatmentClass: "II",
+    });
+    for (let i = 0; i < 11; i++) {
+      await insertFamilyMember({
+        headOfFamilyId: headId,
+        firstName: `AnggotaB${i + 1}`,
+        relationship: i === 0 ? "ISTRI" : "ANAK_TANGGUNGAN",
+        pisaCode: i === 0 ? "2" : "4",
+        gender: i === 0 ? "PEREMPUAN" : i % 2 === 0 ? "LAKI_LAKI" : "PEREMPUAN",
+        birthDate:
+          i === 0
+            ? birthDateFromAge(45)
+            : birthDateFromAge(faker.number.int({ min: 5, max: 20 })),
+      });
+    }
+    console.log(`  ✓ Scenario 5 KELUARGA_BESAR (id=${headId}, 12 members)`);
+  }
+
+  // ──────────────────────────────────────────────────────
+  // Scenario 6 — KAWIN_UMUR_<16
+  // Participant marked KAWIN but only 14 years old
+  // ──────────────────────────────────────────────────────
+  {
+    const id = await insertParticipant({
+      bpjsNumber: "ANOM0000000006",
+      familyCardNumber: "ANOMFAM000006",
+      identityNumber: faker.string.numeric(16),
+      firstName: "Kawin",
+      lastName: "Bocah",
+      nameOnCard: "Kawin Bocah",
+      pisaCode: "1",
+      gender: "PEREMPUAN",
+      birthDate: birthDateFromAge(14),
+      maritalStatus: "KAWIN",
+      isActive: true,
+      participantSegment: "PBI_APBN",
+      treatmentClass: "III",
+    });
+    console.log(`  ✓ Scenario 6 KAWIN_UMUR_<16 (id=${id})`);
+  }
+
+  // ──────────────────────────────────────────────────────
+  // Scenario 7 — ANAK_TAPI_UMUR_>25
+  // Family member with relationship=ANAK_TANGGUNGAN aged 30
+  // ──────────────────────────────────────────────────────
+  {
+    const headId = await insertParticipant({
+      bpjsNumber: "ANOM0000000007",
+      familyCardNumber: "ANOMFAM000007",
+      identityNumber: faker.string.numeric(16),
+      firstName: "Orang",
+      lastName: "Tua Normal",
+      nameOnCard: "Orang Tua Normal",
+      pisaCode: "1",
+      gender: "LAKI_LAKI",
+      birthDate: birthDateFromAge(55),
+      maritalStatus: "KAWIN",
+      isActive: true,
+      participantSegment: "PU_SWASTA",
+      treatmentClass: "II",
+    });
+    await insertFamilyMember({
+      headOfFamilyId: headId,
+      firstName: "Anak",
+      relationship: "ANAK_TANGGUNGAN",
+      pisaCode: "4",
+      gender: "LAKI_LAKI",
+      birthDate: birthDateFromAge(30), // anak umur 30 — harusnya sudah mandiri
+    });
+    console.log(`  ✓ Scenario 7 ANAK_TAPI_UMUR_>25 (head id=${headId})`);
+  }
+
+  // ──────────────────────────────────────────────────────
+  // Scenario 8 — TANPA_KEPALA_KELUARGA
+  // Family where all members have pisaCode != 1 (no proper head)
+  // Implemented as a participant with pisaCode=4 (ANAK) as the only member
+  // ──────────────────────────────────────────────────────
+  {
+    const id = await insertParticipant({
+      bpjsNumber: "ANOM0000000008",
+      familyCardNumber: "ANOMFAM000008",
+      identityNumber: faker.string.numeric(16),
+      firstName: "Anak",
+      lastName: "Tanpa KK",
+      nameOnCard: "Anak Tanpa KK",
+      pisaCode: "4", // ANAK tapi terdaftar sebagai peserta tunggal — no kepala keluarga
+      gender: "LAKI_LAKI",
+      birthDate: birthDateFromAge(15),
+      maritalStatus: "BELUM_KAWIN",
+      isActive: true,
+      participantSegment: "PBI_APBN",
+      treatmentClass: "III",
+    });
+    // Tambah satu anggota keluarga lain yang juga pisaCode=4 agar jml_keluarga>1
+    await insertFamilyMember({
+      headOfFamilyId: id,
+      firstName: "Adik",
+      relationship: "ANAK_TANGGUNGAN",
+      pisaCode: "4",
+      gender: "PEREMPUAN",
+      birthDate: birthDateFromAge(12),
+    });
+    console.log(`  ✓ Scenario 8 TANPA_KEPALA_KELUARGA (id=${id})`);
+  }
+
+  // ──────────────────────────────────────────────────────
+  // Scenario 9 — RASIO_AKTIF_RENDAH
+  // Large family (7 members) where only 1 is active → rasio < 0.2
+  // ──────────────────────────────────────────────────────
+  {
+    const headId = await insertParticipant({
+      bpjsNumber: "ANOM0000000009",
+      familyCardNumber: "ANOMFAM000009",
+      identityNumber: faker.string.numeric(16),
+      firstName: "Kepala",
+      lastName: "Rasio Rendah",
+      nameOnCard: "Kepala Rasio Rendah",
+      pisaCode: "1",
+      gender: "LAKI_LAKI",
+      birthDate: birthDateFromAge(40),
+      maritalStatus: "KAWIN",
+      isActive: true, // hanya kepala yang aktif
+      participantSegment: "PBPU",
+      treatmentClass: "III",
+    });
+    // 6 anggota non-aktif (tapi di familyMember table semua dianggap aktif oleh ML transformer)
+    // Untuk trigger rule ini kita butuh beberapa participant NON_AKTIF dengan familyCardNumber yang sama
+    for (let i = 0; i < 6; i++) {
+      await insertParticipant({
+        bpjsNumber: `ANOM000000100${i}`,
+        familyCardNumber: "ANOMFAM000009", // same family card — same id_keluarga
+        identityNumber: faker.string.numeric(16),
+        firstName: `NonAktif${i + 1}`,
+        lastName: "Rendah",
+        nameOnCard: `NonAktif${i + 1} Rendah`,
+        pisaCode: i === 0 ? "2" : "4",
+        gender: i % 2 === 0 ? "LAKI_LAKI" : "PEREMPUAN",
+        birthDate: birthDateFromAge(faker.number.int({ min: 5, max: 35 })),
+        maritalStatus: "BELUM_KAWIN",
+        isActive: false, // NON_AKTIF — bikin rasio aktif < 0.2
+        participantSegment: "PBI_APBN",
+        treatmentClass: "III",
+      });
+    }
+    console.log(
+      `  ✓ Scenario 9 RASIO_AKTIF_RENDAH (head id=${headId}, 7 members, 1 aktif)`
+    );
+  }
+
+  // ──────────────────────────────────────────────────────
+  // Scenario 10 — Kombinasi: KEPALA_KELUARGA_ANAK + KELUARGA_BESAR
+  // Child head of household with 12 family members
+  // ──────────────────────────────────────────────────────
+  {
+    const headId = await insertParticipant({
+      bpjsNumber: "ANOM0000000010",
+      familyCardNumber: "ANOMFAM000010",
+      identityNumber: faker.string.numeric(16),
+      firstName: "Bocah",
+      lastName: "KK Besar",
+      nameOnCard: "Bocah KK Besar",
+      pisaCode: "1",
+      gender: "LAKI_LAKI",
+      birthDate: birthDateFromAge(10), // kepala keluarga usia 10 + keluarga besar
+      maritalStatus: "BELUM_KAWIN",
+      isActive: true,
+      participantSegment: "PBI_APBN",
+      treatmentClass: "III",
+    });
+    for (let i = 0; i < 12; i++) {
+      await insertFamilyMember({
+        headOfFamilyId: headId,
+        firstName: `AnggotaC${i + 1}`,
+        relationship: "ANAK_TANGGUNGAN",
+        pisaCode: "4",
+        gender: i % 2 === 0 ? "LAKI_LAKI" : "PEREMPUAN",
+        birthDate: birthDateFromAge(faker.number.int({ min: 1, max: 8 })),
+      });
+    }
+    console.log(
+      `  ✓ Scenario 10 KEPALA_KELUARGA_ANAK+KELUARGA_BESAR (id=${headId})`
+    );
+  }
+
+  // ──────────────────────────────────────────────────────
+  // Scenario 11 — Multiple ANAK_TAPI_UMUR_>25 in same family
+  // Several adult "children" registered under one family
+  // ──────────────────────────────────────────────────────
+  {
+    const headId = await insertParticipant({
+      bpjsNumber: "ANOM0000000011",
+      familyCardNumber: "ANOMFAM000011",
+      identityNumber: faker.string.numeric(16),
+      firstName: "Bapak",
+      lastName: "Anak Dewasa",
+      nameOnCard: "Bapak Anak Dewasa",
+      pisaCode: "1",
+      gender: "LAKI_LAKI",
+      birthDate: birthDateFromAge(65),
+      maritalStatus: "KAWIN",
+      isActive: true,
+      participantSegment: "PENSIUNAN_PNS",
+      treatmentClass: "I",
+    });
+    const adultAges = [28, 31, 35, 40];
+    for (const age of adultAges) {
+      await insertFamilyMember({
+        headOfFamilyId: headId,
+        firstName: `AnakDewasa${age}`,
+        relationship: "ANAK_TANGGUNGAN",
+        pisaCode: "4",
+        gender: "LAKI_LAKI",
+        birthDate: birthDateFromAge(age),
+      });
+    }
+    console.log(`  ✓ Scenario 11 multi-ANAK_TAPI_UMUR_>25 (head id=${headId})`);
+  }
+
+  console.log("✓ Anomaly seeding complete — 11 scenarios inserted");
+}
+
 export async function seedAll() {
   console.log("🌱 Starting comprehensive database seeding...\n");
 
@@ -806,6 +1292,7 @@ export async function seedAll() {
   await seedHealthcareFacilities(20);
   await seedDentalFacilities(10);
   await seedParticipants(50);
+  await seedAnomalyData(); // inject anomaly-rich records
   await seedRegistrations(30);
   await seedPayments(100);
   await seedChangeRequests(20);
