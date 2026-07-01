@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
+  Activity,
   ArrowRight,
   CheckCircle2,
   Clock,
@@ -10,6 +11,7 @@ import {
   Info,
   Loader2,
   RefreshCw,
+  Server,
   Shield,
   Users,
   XCircle,
@@ -20,6 +22,14 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -39,7 +49,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { orpc } from "@/lib/orpc/client";
-import { formatBpjsNumber, formatDate } from "@/lib/utils/format";
+import {
+  formatBpjsNumber,
+  formatDate,
+  formatDateTime,
+} from "@/lib/utils/format";
 
 type SegmentType =
   | "all"
@@ -100,11 +114,52 @@ type ParticipantSegment =
 
 type SyncStatus = "synced" | "pending" | "error" | "syncing";
 
+type PingResult = {
+  status: string;
+  connected: boolean;
+  latencyMs?: number;
+  error?: string;
+  version?: string;
+  serverTime?: string;
+  database?: string;
+  user?: string;
+  host?: string;
+  port?: string;
+  connectionString?: string;
+  checkedAt: string;
+};
+
+type PingRow = [label: string, value: string];
+
+/**
+ * Build the key/value rows displayed in the ping result dialog.
+ */
+function buildPingRows(result: PingResult): PingRow[] {
+  const host = result.host ? `${result.host}:${result.port ?? ""}` : "-";
+  if (result.connected) {
+    return [
+      ["Host", host],
+      ["Database", result.database ?? "-"],
+      ["User", result.user ?? "-"],
+      ["Server Time", formatDateTime(result.serverTime ?? null)],
+      ["Versi PostgreSQL", result.version ?? "-"],
+      ["Connection String", result.connectionString ?? "-"],
+    ];
+  }
+  return [
+    ["Host", host],
+    ["Database", result.database ?? "-"],
+    ["Connection String", result.connectionString ?? "-"],
+  ];
+}
+
 export default function SyncPage() {
   const [search, setSearch] = useState("");
   const [segment, setSegment] = useState<SegmentType>("all");
   const [page, setPage] = useState(1);
   const [syncingIds, setSyncingIds] = useState<Set<number>>(new Set());
+  const [pingOpen, setPingOpen] = useState(false);
+  const [pingResult, setPingResult] = useState<PingResult | null>(null);
 
   // Fetch participants for sync
   const { data, isPending, refetch } = useQuery(
@@ -160,6 +215,35 @@ export default function SyncPage() {
     },
   });
 
+  // Ping openIMIS database connection
+  const pingMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch("/api/sync/ping");
+      return (await response.json()) as PingResult;
+    },
+    onSuccess: (result) => {
+      setPingResult(result);
+      if (result.connected) {
+        toast.success("Koneksi openIMIS berhasil", {
+          description: `Latensi ${result.latencyMs ?? "?"} ms`,
+        });
+      } else {
+        toast.error("Koneksi openIMIS gagal", {
+          description: result.error,
+        });
+      }
+    },
+    onError: (error) => {
+      toast.error("Ping gagal", { description: error.message });
+    },
+  });
+
+  const handlePing = () => {
+    setPingResult(null);
+    setPingOpen(true);
+    pingMutation.mutate();
+  };
+
   const handleSync = (participantId: number) => {
     syncMutation.mutate(participantId);
   };
@@ -186,13 +270,31 @@ export default function SyncPage() {
     error: Math.floor((data?.total || 0) * 0.1),
   };
 
+  // Rows rendered in the ping result dialog
+  const pingRows: PingRow[] = pingResult ? buildPingRows(pingResult) : [];
+
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-      <div>
-        <h1 className="font-bold text-2xl">Sinkronisasi openIMIS</h1>
-        <p className="text-muted-foreground">
-          Kelola sinkronisasi data peserta JKN ke openIMIS
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="font-bold text-2xl">Sinkronisasi openIMIS</h1>
+          <p className="text-muted-foreground">
+            Kelola sinkronisasi data peserta JKN ke openIMIS
+          </p>
+        </div>
+        <Button
+          disabled={pingMutation.isPending}
+          onClick={handlePing}
+          size="sm"
+          variant="outline"
+        >
+          {pingMutation.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Activity className="mr-2 h-4 w-4" />
+          )}
+          Ping openIMIS
+        </Button>
       </div>
 
       {/* Statistics */}
@@ -536,6 +638,91 @@ export default function SyncPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Ping openIMIS Dialog */}
+      <Dialog onOpenChange={setPingOpen} open={pingOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {pingMutation.isPending ? (
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              ) : pingResult?.connected ? (
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              ) : (
+                <XCircle className="h-5 w-5 text-red-600" />
+              )}
+              Ping openIMIS Database
+            </DialogTitle>
+            <DialogDescription>
+              Memeriksa koneksi ke database openIMIS eksternal
+              (OPENIMIS_DATABASE_URL)
+            </DialogDescription>
+          </DialogHeader>
+
+          {pingMutation.isPending ? (
+            <div className="flex items-center justify-center py-8">
+              <Spinner />
+            </div>
+          ) : pingResult ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                {pingResult.connected ? (
+                  <Badge
+                    className="bg-green-100 text-green-800 hover:bg-green-100"
+                    variant="outline"
+                  >
+                    <CheckCircle2 className="mr-1 h-3 w-3" />
+                    Terhubung
+                  </Badge>
+                ) : (
+                  <Badge
+                    className="bg-red-100 text-red-800 hover:bg-red-100"
+                    variant="outline"
+                  >
+                    <XCircle className="mr-1 h-3 w-3" />
+                    Gagal Terhubung
+                  </Badge>
+                )}
+                {typeof pingResult.latencyMs === "number" && (
+                  <span className="flex items-center gap-1 text-muted-foreground text-xs">
+                    <Server className="h-3 w-3" />
+                    {pingResult.latencyMs} ms
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-2 text-sm">
+                {pingRows.map(([label, value]) => (
+                  <div className="flex justify-between gap-4" key={label}>
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className="break-all text-right font-medium">
+                      {value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {!pingResult.connected && pingResult.error ? (
+                <div className="rounded-md bg-red-50 p-3 text-red-800 text-xs dark:bg-red-950/40 dark:text-red-300">
+                  {pingResult.error}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button
+              disabled={pingMutation.isPending}
+              onClick={handlePing}
+              variant="outline"
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Ping Ulang
+            </Button>
+            <Button onClick={() => setPingOpen(false)}>Tutup</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
