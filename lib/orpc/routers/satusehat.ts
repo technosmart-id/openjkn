@@ -7,34 +7,38 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import * as jknSchema from "@/lib/db/schema/jkn";
-import { protectedProcedure } from "../server";
 import {
-  isConfigured,
-  buildPatientResource,
-  buildOrganizationResource,
   buildCoverageResource,
-  buildRelatedPersonResource,
-  buildEnrollmentBundle,
-  upsertPatient,
-  upsertOrganization,
-  upsertCoverage,
-  upsertRelatedPerson,
-  executeBundle,
-  searchPatientByNIK,
-  searchPatientByBPJS,
-  searchOrganizationByCode,
-  searchPractitionerByNIK,
-  upsertLocation,
-  upsertEncounter,
   buildEncounterResource,
   buildLocationResource,
-  type SatuSehatError,
-  type FHIRPatient,
-  type FHIOrganization,
+  buildOrganizationResource,
+  buildPatientResource,
+  buildRelatedPersonResource,
+  isConfigured,
+  searchPatientByBPJS,
+  searchPatientByNIK,
+  searchPractitionerByNIK,
+  upsertCoverage,
+  upsertEncounter,
+  upsertLocation,
+  upsertOrganization,
+  upsertPatient,
+  upsertRelatedPerson,
 } from "@/lib/satusehat";
+import { protectedProcedure } from "../server";
 
-const satusehatResourceTypeEnum = z.enum(["Patient", "Organization", "Coverage", "RelatedPerson"]);
-const satusehatSyncStatusEnum = z.enum(["PENDING", "SYNCED", "FAILED", "UPDATE_NEEDED"]);
+const satusehatResourceTypeEnum = z.enum([
+  "Patient",
+  "Organization",
+  "Coverage",
+  "RelatedPerson",
+]);
+const satusehatSyncStatusEnum = z.enum([
+  "PENDING",
+  "SYNCED",
+  "FAILED",
+  "UPDATE_NEEDED",
+]);
 
 // Input schemas
 const enrollParticipantInputSchema = z.object({
@@ -138,14 +142,12 @@ function mapFamilyMemberToFHIR(member: any) {
 
 export const satusehatRouter = {
   // Health check
-  healthCheck: protectedProcedure.handler(async () => {
-    return {
-      configured: isConfigured(),
-      message: isConfigured()
-        ? "SatuSehat integration is configured and ready"
-        : "SatuSehat integration is not configured",
-    };
-  }),
+  healthCheck: protectedProcedure.handler(async () => ({
+    configured: isConfigured(),
+    message: isConfigured()
+      ? "SatuSehat integration is configured and ready"
+      : "SatuSehat integration is not configured",
+  })),
 
   // Enroll a participant to SatuSehat
   enrollParticipant: protectedProcedure
@@ -303,7 +305,10 @@ export const satusehatRouter = {
                 familyMemberId: member.id,
               });
             } catch (error) {
-              console.error(`Failed to sync family member ${member.id}:`, error);
+              console.error(
+                `Failed to sync family member ${member.id}:`,
+                error
+              );
             }
           }
         }
@@ -367,7 +372,8 @@ export const satusehatRouter = {
         });
 
         // Create/update organization in SatuSehat
-        const organizationResult = await upsertOrganization(organizationResource);
+        const organizationResult =
+          await upsertOrganization(organizationResource);
 
         // Update local database with SatuSehat ID
         await db
@@ -423,7 +429,9 @@ export const satusehatRouter = {
       }
 
       if (!participant.satusehatId) {
-        throw new Error("Participant not enrolled in SatuSehat. Use enrollParticipant first.");
+        throw new Error(
+          "Participant not enrolled in SatuSehat. Use enrollParticipant first."
+        );
       }
 
       const participantData = mapParticipantToFHIR(participant);
@@ -463,7 +471,8 @@ export const satusehatRouter = {
           .set({
             status: "FAILED",
             lastSyncedAt: new Date(),
-            lastSyncError: error instanceof Error ? error.message : String(error),
+            lastSyncError:
+              error instanceof Error ? error.message : String(error),
           })
           .where(
             and(
@@ -546,7 +555,10 @@ export const satusehatRouter = {
     .input(z.object({ facilityId: z.number() }))
     .handler(async ({ input }) => {
       const syncRecords = await db.query.satusehatSync.findMany({
-        where: eq(jknSchema.satusehatSync.healthcareFacilityId, input.facilityId),
+        where: eq(
+          jknSchema.satusehatSync.healthcareFacilityId,
+          input.facilityId
+        ),
         orderBy: [desc(jknSchema.satusehatSync.lastSyncedAt)],
       });
 
@@ -580,7 +592,9 @@ export const satusehatRouter = {
       }
 
       if (input.resourceType) {
-        conditions.push(eq(jknSchema.satusehatSync.resourceType, input.resourceType));
+        conditions.push(
+          eq(jknSchema.satusehatSync.resourceType, input.resourceType)
+        );
       }
 
       const whereClause =
@@ -634,17 +648,23 @@ export const satusehatRouter = {
         });
 
         if (!facility) throw new Error("Facility not found");
-        
+
         let facilitySatusehatId = facility.satusehatId;
-        
+
         if (!facilitySatusehatId) {
-          console.log(`Auto-enrolling facility ${facility.name} (${facility.code}) to SatuSehat...`);
+          console.log(
+            `Auto-enrolling facility ${facility.name} (${facility.code}) to SatuSehat...`
+          );
           const facilityData = mapFacilityToFHIR(facility);
-          const organizationResource = buildOrganizationResource(facilityData, {});
-          const organizationResult = await upsertOrganization(organizationResource);
-          
+          const organizationResource = buildOrganizationResource(
+            facilityData,
+            {}
+          );
+          const organizationResult =
+            await upsertOrganization(organizationResource);
+
           facilitySatusehatId = organizationResult.id;
-          
+
           // Update local database
           await db
             .update(jknSchema.healthcareFacility)
@@ -704,7 +724,9 @@ export const satusehatRouter = {
         });
 
         // Step 4: Practitioner (The Doctor)
-        const practitionerResult = await searchPractitionerByNIK(input.doctorNik);
+        const practitionerResult = await searchPractitionerByNIK(
+          input.doctorNik
+        );
         if (!practitionerResult)
           throw new Error(
             `Practitioner with NIK ${input.doctorNik} not found in SatuSehat`

@@ -34,7 +34,14 @@ export interface FHIRIdentifier {
 
 export interface FHIRHumanName {
   id?: string;
-  use?: "usual" | "official" | "temp" | "nickname" | "anonymous" | "old" | "maiden";
+  use?:
+    | "usual"
+    | "official"
+    | "temp"
+    | "nickname"
+    | "anonymous"
+    | "old"
+    | "maiden";
   text?: string;
   family?: string;
   given?: string[];
@@ -512,7 +519,8 @@ export const SATUSEHAT_SYSTEMS = {
   // Encounter & Location
   ENCOUNTER_STATUS: "http://hl7.org/fhir/encounter-status",
   ENCOUNTER_CLASS: "http://terminology.hl7.org/CodeSystem/v3-ActCode",
-  LOCATION_PHYSICAL_TYPE: "http://terminology.hl7.org/CodeSystem/location-physical-type",
+  LOCATION_PHYSICAL_TYPE:
+    "http://terminology.hl7.org/CodeSystem/location-physical-type",
 } as const;
 
 // SatuSehat specific codes
