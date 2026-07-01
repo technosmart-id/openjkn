@@ -132,24 +132,31 @@ async function makeRequest<T>(
     });
 
     if (!response.ok) {
-      // Try to parse as OperationOutcome
+      // Read the body once, as text, so we can attempt a FHIR parse without
+      // consuming the stream twice.
+      const body = await response.text();
+
+      // SatuSehat returns a FHIR OperationOutcome on errors — surface its
+      // diagnostics so callers see *why* the request was rejected.
       const contentType = response.headers.get("content-type");
-      if (contentType?.includes("application/fhir+json")) {
+      if (contentType?.includes("json")) {
+        let outcome: FHIROperationOutcome | undefined;
         try {
-          const outcome: FHIROperationOutcome = await response.json();
-          const message =
-            outcome.issue?.[0]?.diagnostics ||
-            outcome.issue?.[0]?.details?.text ||
-            "SatuSehat API error";
-          throw new SatuSehatError(message, response.status, outcome);
+          outcome = JSON.parse(body) as FHIROperationOutcome;
         } catch {
-          // Fall through to generic error
+          // Body isn't valid JSON — fall through to the generic text error.
+        }
+
+        const issue = outcome?.issue?.[0];
+        if (issue) {
+          const message =
+            issue.diagnostics || issue.details?.text || "SatuSehat API error";
+          throw new SatuSehatError(message, response.status, outcome);
         }
       }
 
-      const text = await response.text();
       throw new SatuSehatError(
-        `SatuSehat API error: ${response.statusText} - ${text}`,
+        `SatuSehat API error: ${response.status} ${response.statusText} - ${body}`,
         response.status
       );
     }

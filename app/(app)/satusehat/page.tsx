@@ -86,6 +86,7 @@ export default function SatuSehatPage() {
       facilityId: selectedFacilityId,
       doctorNik,
       locationName,
+      status,
     });
   };
 

@@ -632,6 +632,7 @@ export const satusehatRouter = {
         doctorNik: z.string(),
         facilityId: z.number(),
         locationName: z.string().default("Poli Umum"),
+        status: z.enum(["arrived", "in-progress"]).default("arrived"),
       })
     )
     .handler(async ({ input }) => {
@@ -745,7 +746,7 @@ export const satusehatRouter = {
           practitionerId: practitionerResult.id!,
           organizationId: facilitySatusehatId!,
           locationId: locationResult.id,
-          status: "arrived",
+          status: input.status,
         });
 
         const encounterResult = await upsertEncounter(encounterResource);
